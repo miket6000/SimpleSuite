@@ -26,7 +26,7 @@ class SimpleTrackerApp extends StatelessWidget {
       theme: ThemeData.dark(),
       debugShowCheckedModeBanner: false,
       home: DefaultTabController(
-        length: 5, // Number of tabs
+        length: 4, // Number of tabs
         child: MyHomePage(),
       ),
     );
@@ -53,7 +53,7 @@ class MyHomePageState extends State<MyHomePage> {
             Tab(icon: Icon(Icons.map), text: "Map"),
             Tab(icon: Icon(Icons.radar), text: "Channel Scan"),
             Tab(icon: Icon(Icons.text_fields_rounded), text: "Serial Connection"),
-            Tab(icon: Icon(Icons.settings), text: "Settings"),
+            //Tab(icon: Icon(Icons.settings), text: "Settings"),
           ],
         ),
       ),
@@ -63,7 +63,7 @@ class MyHomePageState extends State<MyHomePage> {
           MapScreen(),
           ChannelScanScreen(),
           TerminalScreen(),
-          SettingPage(),
+          //SettingPage(),
         ],
       ),
     );
