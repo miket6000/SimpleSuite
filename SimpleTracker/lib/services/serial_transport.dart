@@ -49,7 +49,7 @@ class SerialDeviceInfo {
 /// Cross-platform serial service facade.
 /// - onDataReceived(String) callback receives decoded incoming data
 /// - onError and onDone notify higher layers
-class SerialService {
+class SerialTransport {
   void Function(Object error)? onError;
   VoidCallback? onDone;
   void Function(String)? onDataReceived;
@@ -70,7 +70,7 @@ class SerialService {
   /// Call [listPorts] to refresh the cache from the underlying implementation.
   List<String> get availablePorts => List.unmodifiable(_cachedPorts);
 
-  SerialService() {
+  SerialTransport() {
     if (Platform.isAndroid) {
       _impl = _AndroidSerialImpl(
           _decoder, _forwardData, _forwardError, _forwardDone);

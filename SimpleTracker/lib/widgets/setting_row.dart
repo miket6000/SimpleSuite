@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../settings.dart';
+import '../services/settings_service.dart';
 
 class SettingRow extends StatefulWidget {
   final Setting setting;

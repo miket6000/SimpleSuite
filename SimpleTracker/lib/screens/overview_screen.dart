@@ -5,7 +5,7 @@ import '../widgets/datatile.dart';
 import '../widgets/status_bar.dart';
 import '../widgets/location_qr_widget.dart';
 import 'package:provider/provider.dart';
-import '../providers/serial_provider.dart';
+import '../providers/tracker_provider.dart';
 
 class OverviewScreen extends StatefulWidget {
   const OverviewScreen({super.key});
@@ -30,21 +30,20 @@ class OverviewScreenState extends State<OverviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final serial = Provider.of<SerialProvider>(context);
-    final telemetry = serial.telemetry;
+    final provider = Provider.of<TrackerProvider>(context);
+    final telemetry = provider.telemetry;
     final remoteFix = telemetry?.remoteFix;
-    final discoveredDevices = serial.discoveredDevices;
+    final discoveredDevices = provider.discoveredDevices;
     final discoveredUIDs = discoveredDevices.keys.toList();
-    final selectedUID = serial.selectedRemoteUID;
+    final selectedUID = provider.selectedRemoteUID;
 
     final int crossAxisCount =
         MediaQuery.of(context).size.width > 650 ? 3 : 1; // For mobile
     final List dataTiles = [
-      //DataTile(title: "Time",               value: telemetry?.localFix.timestamp != null ? DateFormat("HH:mm:ss").format(telemetry!.localFix.timestamp!) : null),
       DataTile(
           title: "Last Packet Age",
-          value: serial.lastUniqueRemotePacketTime != null
-              ? "${DateTime.now().difference(serial.lastUniqueRemotePacketTime!).inSeconds}s"
+          value: provider.lastUniqueRemotePacketTime != null
+              ? "${DateTime.now().difference(provider.lastUniqueRemotePacketTime!).inSeconds}s"
               : null),
       DataTile(
           title: "RSSI",
@@ -104,11 +103,11 @@ class OverviewScreenState extends State<OverviewScreen> {
                               fontSize: 14, fontWeight: FontWeight.bold)),
                       Row(
                         children: [
-                          if (serial.isPaired)
+                          if (provider.isPaired)
                             Padding(
                               padding: const EdgeInsets.only(right: 8.0),
                               child: ElevatedButton.icon(
-                                onPressed: () => serial.selectRemoteUID(null),
+                                onPressed: () => provider.selectRemoteUID(null),
                                 icon: const Icon(Icons.link_off, size: 16),
                                 label: const Text('Unpair'),
                                 style: ElevatedButton.styleFrom(
@@ -119,13 +118,32 @@ class OverviewScreenState extends State<OverviewScreen> {
                                 ),
                               ),
                             ),
+                          if (discoveredUIDs.isNotEmpty &&
+                              !provider.isPaired &&
+                              !provider.isScanning &&
+                              !provider.isChannelScanRunning)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: ElevatedButton.icon(
+                                onPressed: () =>
+                                    provider.clearDiscoveredDevices(),
+                                icon: const Icon(Icons.clear_all, size: 16),
+                                label: const Text('Clear'),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                ),
+                              ),
+                            ),
                           ElevatedButton.icon(
-                            onPressed: serial.isConnected &&
-                                    !serial.isScanning &&
-                                    !serial.isPaired
-                                ? () => serial.startScan()
+                            onPressed: provider.isConnected &&
+                                    !provider.isPaired &&
+                                    !provider.isChannelScanRunning
+                                ? (provider.isScanning
+                                    ? () => provider.stopScan()
+                                    : () => provider.startScan())
                                 : null,
-                            icon: serial.isScanning
+                            icon: provider.isScanning
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
@@ -133,7 +151,7 @@ class OverviewScreenState extends State<OverviewScreen> {
                                         strokeWidth: 2))
                                 : const Icon(Icons.search, size: 16),
                             label: Text(
-                                serial.isScanning ? 'Scanning...' : 'Scan'),
+                                provider.isScanning ? 'Stop' : 'Scan'),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 8),
@@ -165,13 +183,22 @@ class OverviewScreenState extends State<OverviewScreen> {
                         // Individual tracker buttons with RSSI
                         ...discoveredUIDs.map((uid) {
                           final isSelected = selectedUID == uid;
-                          final rssi = discoveredDevices[uid];
+                          final device = discoveredDevices[uid]!;
+                          final ch = device.channelName;
+                          final origin = device.isPaired ? '📡' : '🔍';
+                          final label =
+                              '$origin $uid  $ch  ${device.rssi} dBm';
+                          // Allow re-tapping the selected tracker to re-pair
+                          // (e.g. after a power cycle), but block switching to
+                          // a different tracker while paired.
+                          final canSelect = !provider.isPaired ||
+                              (isSelected && !provider.isRemoteOnline);
                           return FilterChip(
-                            label: Text('$uid (${rssi} dBm)'),
+                            label: Text(label),
                             selected: isSelected,
-                            onSelected: serial.isPaired
-                                ? null
-                                : (_) => serial.selectRemoteUID(uid),
+                            onSelected: canSelect
+                                ? (_) => provider.selectRemoteUID(uid)
+                                : null,
                           );
                         }),
                       ],
@@ -212,14 +239,13 @@ class OverviewScreenState extends State<OverviewScreen> {
         ),
       ),
       bottomNavigationBar: StatusBar(
-          // use the "most recent packet had fix" flag so we reflect current packet state
-          isGpsFix: serial.remotePacketHasFix &&
-              serial.isConnected &&
-              serial.isRemoteOnline,
-          isTrackerOnline: serial.isRemoteOnline && serial.isConnected,
-          isLocalGPSFix: (serial.telemetry?.localFix?.hasFix ?? false) &&
-              serial.isConnected,
-          isConnected: serial.isConnected),
+          isGpsFix: provider.remotePacketHasFix &&
+              provider.isConnected &&
+              provider.isRemoteOnline,
+          isTrackerOnline: provider.isRemoteOnline && provider.isConnected,
+          isLocalGPSFix: (provider.telemetry?.localFix?.hasFix ?? false) &&
+              provider.isConnected,
+          isConnected: provider.isConnected),
     );
   }
 }

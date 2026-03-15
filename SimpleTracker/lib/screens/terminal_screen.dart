@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/serial_provider.dart';
+import '../providers/tracker_provider.dart';
 import '../widgets/serial_display.dart';
 
 class TerminalScreen extends StatefulWidget {
@@ -22,39 +22,31 @@ class TerminalScreenState extends State<TerminalScreen> {
     super.dispose();
   }
 
-  void _sendCommand(SerialProvider serial, TextEditingController controller) {
-    if (serial.isConnected) {
-      final polling = serial.isPolling;
+  void _sendCommand(TrackerProvider provider, TextEditingController controller) {
+    if (provider.isConnected) {
       try {
-        if(polling) {
-          serial.stopPolling();
-        }
-        serial.sendQueuedCommand("${controller.text}\n");
+        provider.sendRawCommand("${controller.text}\n");
         controller.clear();
       } catch (e) {
-        debugPrint("SerialPortError in _sendCommand(): $e");
-      } finally {
-        if(polling) {
-          serial.startPolling();
-        }
-      }  
+        debugPrint("Error in _sendCommand(): $e");
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final serial = Provider.of<SerialProvider>(context);
-    final logFile = serial.logFilePath;
+    final provider = Provider.of<TrackerProvider>(context);
+    final logFile = provider.logFilePath;
 
     // Ensure dropdown value is only used when present exactly once
-    final ports = serial.availablePorts.toList();
+    final ports = provider.availablePorts.toList();
     final uniquePorts = <String>[];
     final seen = <String>{};
     for (var p in ports) {
       if (seen.add(p)) uniquePorts.add(p);
     }
-    final safeSelected = (serial.selectedPort != null && uniquePorts.contains(serial.selectedPort))
-        ? serial.selectedPort
+    final safeSelected = (provider.selectedPort != null && uniquePorts.contains(provider.selectedPort))
+        ? provider.selectedPort
         : null;
     
     return Padding(
@@ -71,16 +63,16 @@ class TerminalScreenState extends State<TerminalScreen> {
                     .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                     .toList(),
                 onChanged: (value) {
-                  serial.selectPort(value);
+                  provider.selectPort(value);
                 },
               ),
             ),
             const SizedBox(width: 16),
             ElevatedButton(
-              onPressed: serial.isConnected
-                  ? serial.disconnect
-                  : serial.connect,
-              child: Text(serial.isConnected ? "Disconnect" : "Connect"),
+              onPressed: provider.isConnected
+                  ? provider.disconnect
+                  : provider.connect,
+              child: Text(provider.isConnected ? "Disconnect" : "Connect"),
             )
           ]),
           SizedBox(height: 16),
@@ -91,7 +83,7 @@ class TerminalScreenState extends State<TerminalScreen> {
                 focusNode: focusNode,
                 onSubmitted: (_) {
                   Future.microtask(() {
-                    _sendCommand(serial, controller);
+                    _sendCommand(provider, controller);
                     if (!Platform.isAndroid && !Platform.isIOS) {
                       focusNode.requestFocus();
                     }                    
@@ -102,13 +94,13 @@ class TerminalScreenState extends State<TerminalScreen> {
             ),
             SizedBox(width: 8),
             ElevatedButton(
-              onPressed: () => _sendCommand(serial, controller),
+              onPressed: () => _sendCommand(provider, controller),
               child: Text("Send"),
             )
           ]),
           SizedBox(height: 16),
           Expanded(
-            child: SerialDisplay(logs: serial.logs), 
+            child: SerialDisplay(logs: provider.logs), 
           ),
           SizedBox(height: 16),
           SelectableText((logFile != null) ? "See logfile at $logFile" : "Initializing log"),

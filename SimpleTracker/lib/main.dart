@@ -2,21 +2,15 @@ import 'package:flutter/material.dart';
 import 'screens/overview_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/channel_scan_screen.dart';
 import 'package:provider/provider.dart';
-import 'providers/serial_provider.dart';
+import 'providers/tracker_provider.dart';
 import 'screens/terminal_screen.dart';
 
-/*
-void main() {
-  runApp(SimpleTrackerApp());
-}
-*/
-
-// change notifier based start, for when I get around to implementing SerialConnection.
 void main() {
   runApp(
     ChangeNotifierProvider(
-      create: (_) => SerialProvider(),
+      create: (_) => TrackerProvider(),
       child: SimpleTrackerApp(),
     ),
   );
@@ -32,7 +26,7 @@ class SimpleTrackerApp extends StatelessWidget {
       theme: ThemeData.dark(),
       debugShowCheckedModeBanner: false,
       home: DefaultTabController(
-        length: 4, // Number of tabs
+        length: 5, // Number of tabs
         child: MyHomePage(),
       ),
     );
@@ -57,6 +51,7 @@ class MyHomePageState extends State<MyHomePage> {
           tabs: [
             Tab(icon: Icon(Icons.home), text: "Overview"),
             Tab(icon: Icon(Icons.map), text: "Map"),
+            Tab(icon: Icon(Icons.radar), text: "Channel Scan"),
             Tab(icon: Icon(Icons.text_fields_rounded), text: "Serial Connection"),
             Tab(icon: Icon(Icons.settings), text: "Settings"),
           ],
@@ -66,6 +61,7 @@ class MyHomePageState extends State<MyHomePage> {
         children: [
           OverviewScreen(),
           MapScreen(),
+          ChannelScanScreen(),
           TerminalScreen(),
           SettingPage(),
         ],

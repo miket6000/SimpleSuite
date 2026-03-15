@@ -43,14 +43,14 @@ class SerialHandler {
       final parts = trimmed.split(' ');
       final count = int.tryParse(parts[0]);
       if (count != null && count >= 0) {
-        final devices = <DiscoveredDevice>[];
+        final devices = <ScanResult>[];
         for (int i = 1; i < parts.length; i++) {
           final pair = parts[i].split(',');
           if (pair.length == 2) {
             final uid = pair[0];
             final rssi = int.tryParse(pair[1]);
             if (rssi != null) {
-              devices.add(DiscoveredDevice(uid: uid, rssi: rssi));
+              devices.add(ScanResult(uid: uid, rssi: rssi));
             }
           }
         }

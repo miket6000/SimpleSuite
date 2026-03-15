@@ -19,11 +19,11 @@ class RemoteUIDResponse {
   RemoteUIDResponse({required this.remoteId, required this.rssi});
 }
 
-/// Represents a discovered tracker from a SCAN/D cycle
-class DiscoveredDevice {
+/// A single entry from a SCAN/D discovery cycle (raw parse result).
+class ScanResult {
   final String uid;
   final int rssi;
-  DiscoveredDevice({required this.uid, required this.rssi});
+  ScanResult({required this.uid, required this.rssi});
 }
 
 /// Discovery not started (D returns NONE)
@@ -38,7 +38,7 @@ class DiscoveryWaitResponse {
 /// Discovery complete (D returns <count> <uid1>,<rssi1> ...)
 class DiscoveryCompleteResponse {
   final int count;
-  final List<DiscoveredDevice> devices;
+  final List<ScanResult> devices;
   DiscoveryCompleteResponse({required this.count, required this.devices});
 }
 

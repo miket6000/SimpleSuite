@@ -27,11 +27,22 @@ class TelemetryTracker {
   bool get lastPacketHadFix => _lastPacketHadFix;
   DateTime? get lastUniqueRemotePacketTime => _lastUniqueRemotePacketTime;
 
-  /// True if the remote tracker is currently online (receiving new responses)
-  /// False if we've seen the same response repeated too many times or haven't received any packets yet
-  bool get isRemoteOnline =>
-      _lastRemoteResponse != null &&
-      _identicalResponseCount < _offlineThreshold;
+  /// True if the remote tracker is currently online (receiving new responses).
+  /// False if we've seen the same response repeated too many times,
+  /// haven't received any packets yet, or the last unique packet is older
+  /// than [_onlineTimeoutSeconds].
+  static const int _onlineTimeoutSeconds = 5;
+
+  bool get isRemoteOnline {
+    if (_lastRemoteResponse == null) return false;
+    if (_identicalResponseCount >= _offlineThreshold) return false;
+    if (_lastUniqueRemotePacketTime != null &&
+        DateTime.now().difference(_lastUniqueRemotePacketTime!).inSeconds >
+            _onlineTimeoutSeconds) {
+      return false;
+    }
+    return true;
+  }
 
   void updateRemoteUid(RemoteUIDResponse data) {
     _remoteId = data.remoteId;

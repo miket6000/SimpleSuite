@@ -1,10 +1,9 @@
-import '../providers/serial_provider.dart';
-import '../settings.dart';
+import '../providers/tracker_provider.dart';
+import '../services/settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../widgets/setting_row.dart';
-import '../channels.dart';
 
 final GlobalKey<SettingPageState> settingPageKey =
     GlobalKey<SettingPageState>();
@@ -19,66 +18,35 @@ class SettingPageState extends State<SettingPage> {
   int? selectedChannelIndex;
   bool _isUploading = false;
 
-  // Upload all current settings to the device
   Future<void> updateSettings() async {
-    final serial = Provider.of<SerialProvider>(context, listen: false);
-    var polling = false;
-    if (serial.isPolling) {
-      polling = true;
-      serial.stopPolling();
-    }
-    // capture messenger & avoid using context after awaits without mounted check
+    final provider = Provider.of<TrackerProvider>(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _isUploading = true);
 
     try {
-      for (final entry in defaultSettings.entries) {
-        if (entry.value.modified) {
-          try {
-            final cmd = entry.value.serialize(); // should produce "SET X Y\n"
-            final resp =
-                await serial.sendQueuedCommand(cmd, expectResponse: true);
-            if (resp.trim() != 'OK') {
-              if (!mounted) return;
-              messenger.showSnackBar(
-                SnackBar(
-                    content:
-                        Text('Device rejected ${entry.key}: "${resp.trim()}"')),
-              );
-              // stop upload on error (or continue if you prefer)
-              break;
-            }
-          } catch (e) {
-            if (!mounted) return;
-            messenger.showSnackBar(
-              SnackBar(content: Text('Failed to send ${entry.key}: $e')),
-            );
-            // stop or continue depending on desired behavior
-            break;
-          }
-        }
-      }
-
+      final ok = await provider.uploadSettings();
       if (!mounted) return;
-      messenger
-          .showSnackBar(const SnackBar(content: Text('Settings uploaded')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(ok ? 'Settings uploaded' : 'Some settings failed')),
+      );
     } finally {
       if (mounted) setState(() => _isUploading = false);
-      if (polling) serial.startPolling();
     }
   }
 
   void factoryReset() {
-    final serial = Provider.of<SerialProvider>(context, listen: false);
-    if (serial.isConnected) {
-      serial.sendQueuedCommand("FACTORY\n");
+    final provider = Provider.of<TrackerProvider>(context, listen: false);
+    if (provider.isConnected) {
+      provider.factoryReset();
     }
-    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final settingRows = defaultSettings.entries
+    final provider = Provider.of<TrackerProvider>(context);
+    final deviceSettings = provider.settings;
+
+    final settingRows = deviceSettings.entries
         .map((entry) => SettingRow(
               setting: entry.value,
               onChanged: (newVal) {
@@ -100,17 +68,17 @@ class SettingPageState extends State<SettingPage> {
               DropdownButton<int>(
                 value: selectedChannelIndex,
                 hint: const Text("Select Channel"),
-                items: channels.map((channel) {
+                items: channelPresets.map((channel) {
                   return DropdownMenuItem<int>(
                     value: channel.number,
                     child: Text(channel.name),
                   );
                 }).toList(),
                 onChanged: (index) {
-                  final channel = channels.firstWhere((c) => c.number == index);
+                  final channel = channelPresets.firstWhere((c) => c.number == index);
                   setState(() {
                     selectedChannelIndex = index;
-                    applyChannelPreset(channel);
+                    provider.applyChannelPreset(channel);
                   });
                 },
               ),
