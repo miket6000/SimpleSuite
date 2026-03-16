@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'screens/overview_screen.dart';
 import 'screens/map_screen.dart';
-import 'screens/settings_screen.dart';
 import 'screens/channel_scan_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/tracker_provider.dart';

@@ -21,6 +21,7 @@ class GroundStationService {
 
   bool _isConnected = false;
   String? _groundStationUid;
+  String? _lastRawRemote; // tracks last R response for stale detection
 
   /// Callbacks for higher layers (provider) to react to events.
   void Function(Object error)? onError;
@@ -79,6 +80,7 @@ class GroundStationService {
     if (!_isConnected) return; // already disconnected — idempotent
     _isConnected = false;
     _groundStationUid = null;
+    _lastRawRemote = null;
     _commandQueue.failAll(StateError('Disconnect requested'));
     try {
       await _transport.closePort();
@@ -137,21 +139,19 @@ class GroundStationService {
 
   /// §2.6 — Read last received LoRa message.
   /// Returns a typed response (RemoteResponse, PairAckResponse, etc.)
-  /// or null if empty.
+  /// or null if empty / unchanged since last call.
   Future<dynamic> readRemote() async {
-    final response = await _sendCommand('R');
-    if (response == null) return null;
-    return _handler.parse('R', response);
+    final raw = await _sendCommand('R');
+    if (raw == null || raw == _lastRawRemote) return null;
+    _lastRawRemote = raw;
+    return _handler.parse('R', raw);
   }
 
-  /// §2.6 — Read the raw R response string (for stale-detection).
-  Future<String?> readRemoteRaw() async {
-    return await _sendCommand('R');
-  }
-
-  /// Parse a raw R response string into a typed result.
-  dynamic parseRemote(String response) {
-    return _handler.parse('R', response);
+  /// Reset the stale-detection baseline. Call this after a channel switch
+  /// or before starting pairing so the next readRemote() doesn't compare
+  /// against a response from a different context.
+  void resetRemoteBaseline() {
+    _lastRawRemote = null;
   }
 
   /// §2.7 — Read local GPS sentence.
@@ -167,7 +167,9 @@ class GroundStationService {
     final response = await _sendCommand(cmd);
     if (response == null) return false;
     final result = _handler.parse(cmd, response);
-    return result is CommandStatus && result.response == 'OK';
+    final ok = result is CommandStatus && result.response == 'OK';
+    if (ok) _lastRawRemote = null; // baseline is stale after channel switch
+    return ok;
   }
 
   /// §2.5 — Send a raw LoRa transmission.
@@ -263,6 +265,7 @@ class GroundStationService {
     if (!_isConnected) return; // already handled — avoid double-fire
     _isConnected = false;
     _groundStationUid = null;
+    _lastRawRemote = null;
     _commandQueue.failAll(StateError('Connection lost: $cause'));
     try {
       _transport.closePort();

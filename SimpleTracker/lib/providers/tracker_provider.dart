@@ -25,17 +25,13 @@ class TrackerProvider extends ChangeNotifier {
   final Map<String, DiscoveredDevice> _discoveredDevices = {};
   String? _selectedRemoteUID;
   Timer? _portScanTimer;
-  Timer? _pollTimer;
   Timer? _uiRefreshTimer;
   List<String> _availablePorts = [];
   bool _connectInProgress = false; // guard against overlapping connect attempts
+  bool _pollActive = false; // controls async poll loops
 
   /// Next channel index to assign (channels 1-24; 0 is discovery).
   int _nextChannelIndex = 1;
-
-  // Stale-detection baseline for pairing — the raw R response captured
-  // just before polling begins so we can distinguish fresh packets.
-  String? _pairingBaseline;
 
   // Channel scan state
   int _channelScanCurrent = 0;        // channel index currently being scanned
@@ -133,10 +129,7 @@ class TrackerProvider extends ChangeNotifier {
         final ok = await _gs.switchChannel(previousDevice.trackingConfig);
         if (ok) {
           _transition(TrackerState.tracking);
-          _startPolling(
-            interval: const Duration(seconds: 1),
-            action: _pollForTrackingData,
-          );
+          _startTrackingLoop();
           return;
         }
         await _log.warning('Channel switch failed, falling back to idle');
@@ -148,11 +141,8 @@ class TrackerProvider extends ChangeNotifier {
 
         final ok = await _gs.pair(previousUID!, previousDevice.trackingConfig);
         if (ok) {
-          _pairingBaseline = await _gs.readRemoteRaw();
-          _startPolling(
-            interval: const Duration(seconds: 1),
-            action: _pollForTrackingData,
-          );
+          _gs.resetRemoteBaseline();
+          _startTrackingLoop();
           return;
         }
         await _log.warning('PAIR failed, falling back to idle');
@@ -229,73 +219,50 @@ class TrackerProvider extends ChangeNotifier {
   Future<void> startScan() async {
     if (!isConnected || isScanning) return;
 
+    _stopPolling();
     _transition(TrackerState.scanning);
 
-    final ok = await _gs.scan();
-    if (!ok) {
-      _transition(TrackerState.idle);
-      return;
+    await _log.info('Discovery scan started');
+
+    while (_state == TrackerState.scanning && isConnected) {
+      final ok = await _gs.scan();
+      if (!ok) {
+        _transition(TrackerState.idle);
+        break;
+      }
+
+      // Poll D until the scan completes or is cancelled
+      while (_state == TrackerState.scanning && isConnected) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (_state != TrackerState.scanning || !isConnected) break;
+
+        final result = await _gs.pollDiscovery();
+
+        if (result is DiscoveryCompleteResponse) {
+          for (final device in result.devices) {
+            _mergeDevice(device.uid, device.rssi);
+          }
+          await _log.info('Discovery complete: ${result.count} device(s)');
+          notifyListeners();
+          break; // restart outer loop → re-issue SCAN
+        } else if (result is DiscoveryNoneResponse) {
+          await _log.info('Discovery complete: no devices found');
+          notifyListeners();
+          break; // restart outer loop → re-issue SCAN
+        } else if (result is DiscoveryWaitResponse) {
+          await _log.debug('Discovery in progress: ${result.count} so far');
+        }
+      }
     }
 
-    // Poll D every 2 seconds
-    _startPolling(
-      interval: const Duration(seconds: 2),
-      action: _pollDiscovery,
-    );
+    if (_state == TrackerState.scanning) {
+      _transition(TrackerState.idle);
+    }
   }
 
   void stopScan() {
     if (!isScanning) return;
-    _stopPolling();
     _transition(TrackerState.idle);
-  }
-
-  Future<void> _pollDiscovery() async {
-    final result = await _gs.pollDiscovery();
-
-    if (result is DiscoveryCompleteResponse) {
-      _stopPolling();
-      // Merge new devices into the existing map — update RSSI for known
-      // devices, add newly discovered ones, but never remove entries.
-      for (final device in result.devices) {
-        _mergeDevice(device.uid, device.rssi);
-      }
-      await _log.info('Discovery complete: ${result.count} device(s)');
-      notifyListeners();
-
-      // Loop: restart scan while still in the scanning state
-      if (_state == TrackerState.scanning && isConnected) {
-        final ok = await _gs.scan();
-        if (ok) {
-          _startPolling(
-            interval: const Duration(seconds: 2),
-            action: _pollDiscovery,
-          );
-        } else {
-          _transition(TrackerState.idle);
-        }
-      }
-    } else if (result is DiscoveryWaitResponse) {
-      await _log.debug('Discovery in progress: ${result.count} so far');
-    } else if (result is DiscoveryNoneResponse) {
-      _stopPolling();
-      await _log.info('Discovery complete: no devices found');
-      notifyListeners();
-
-      // Loop: restart scan while still in the scanning state
-      if (_state == TrackerState.scanning && isConnected) {
-        final ok = await _gs.scan();
-        if (ok) {
-          _startPolling(
-            interval: const Duration(seconds: 2),
-            action: _pollDiscovery,
-          );
-        } else {
-          _transition(TrackerState.idle);
-        }
-      }
-    }
-    notifyListeners();
   }
 
   // ---------------------------------------------------------------------------
@@ -324,10 +291,7 @@ class TrackerProvider extends ChangeNotifier {
           return;
         }
         _transition(TrackerState.tracking);
-        _startPolling(
-          interval: const Duration(seconds: 1),
-          action: _pollForTrackingData,
-        );
+        _startTrackingLoop();
       } else {
         // Tracker was found via discovery scan — it's on the discovery
         // channel, so we need to PAIR to negotiate a tracking channel.
@@ -342,13 +306,10 @@ class TrackerProvider extends ChangeNotifier {
         }
         await _log.info('PAIR sent to $uid, waiting for ACK...');
 
-        // Capture stale R baseline so _pollRemote can detect fresh packets
-        _pairingBaseline = await _gs.readRemoteRaw();
+        // Reset baseline so readRemote() treats the next response as fresh
+        _gs.resetRemoteBaseline();
 
-        _startPolling(
-          interval: const Duration(seconds: 1),
-          action: _pollForTrackingData,
-        );
+        _startTrackingLoop();
       }
     } else if (uid == null && isConnected) {
       // Unpair
@@ -362,36 +323,49 @@ class TrackerProvider extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // Tracking poll
+  // Tracking loop
   // ---------------------------------------------------------------------------
 
-  /// Combined poll that handles both the pairing→tracking transition
-  /// and steady-state tracking data.
-  int _pollPhase = 0; // alternates between R and L
+  /// Start the tracking async loop. Alternates R and L commands with a
+  /// 1-second delay between each. Handles both pairing→tracking transition
+  /// and steady-state tracking. The loop is inherently sequential — no
+  /// overlap is possible because each iteration awaits the previous one.
+  void _startTrackingLoop() {
+    _stopPolling();
+    _pollActive = true;
 
-  Future<void> _pollForTrackingData() async {
-    if (_pollPhase % 2 == 0) {
-      // Poll R (remote data)
+    // UI refresh timer for time-dependent values (e.g. "Last Packet Age")
+    _uiRefreshTimer?.cancel();
+    _uiRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      notifyListeners();
+    });
+
+    // Fire-and-forget the async loop — it will run until _pollActive is
+    // cleared or the state changes away from pairing/tracking.
+    _trackingLoop();
+  }
+
+  Future<void> _trackingLoop() async {
+    while (_pollActive && isConnected &&
+        (_state == TrackerState.pairing || _state == TrackerState.tracking)) {
+      // --- R (remote) ---
       await _pollRemote();
-    } else {
-      // Poll L (local GPS)
+      await Future.delayed(const Duration(seconds: 1));
+      if (!_pollActive) break;
+
+      // --- L (local GPS) ---
       await _pollLocal();
+      await Future.delayed(const Duration(seconds: 1));
     }
-    _pollPhase++;
   }
 
   Future<void> _pollRemote() async {
-    // During pairing, use raw string comparison to detect fresh packets.
-    // The ground station caches the last R response and it persists across
-    // channel switches, so stale data would falsely trigger tracking.
+    final result = await _gs.readRemote();
+    if (result == null) return; // timeout or stale — nothing new
+
     if (_state == TrackerState.pairing) {
-      final raw = await _gs.readRemoteRaw();
-      if (raw == null || raw == _pairingBaseline) return; // stale — ignore
-
-      // Response changed — a fresh packet arrived, parse it
-      _pairingBaseline = null; // no longer needed
-      final result = _gs.parseRemote(raw);
-
+      // Any fresh packet during pairing means the tracker received
+      // our PAIR and is now transmitting on the tracking channel.
       if (result is PairAckResponse) {
         await _log.info('PAIR ACK from ${result.remoteId}');
         _discoveredDevices[result.remoteId]?.isPaired = true;
@@ -417,10 +391,7 @@ class TrackerProvider extends ChangeNotifier {
       return;
     }
 
-    // Steady-state tracking — no stale-detection needed
-    final result = await _gs.readRemote();
-    if (result == null) return;
-
+    // Steady-state tracking
     if (result is RemoteResponse) {
       _mergeDevice(result.remoteId, result.rssi);
       if (_selectedRemoteUID == null ||
@@ -493,29 +464,23 @@ class TrackerProvider extends ChangeNotifier {
         _channelScanCurrent = i;
         notifyListeners();
 
-        // Switch to this channel
+        // Switch to this channel (also resets the R baseline in the GS)
         final ok = await _gs.switchChannel(preset.config);
         if (!ok) {
           await _log.warning('Failed to switch to ${preset.name}');
           continue;
         }
 
-        // Capture the stale R response as a baseline. The ground station
-        // caches the last received packet and a channel switch does NOT
-        // clear it. We can only detect a fresh reception by noticing the
-        // raw response string has changed.
-        final baseline = await _gs.readRemoteRaw();
-
-        // Poll R several times over ~2 seconds
+        // Poll R several times over ~2 seconds.
+        // switchChannel resets the stale baseline, so readRemote() will
+        // return null until a genuinely new packet arrives on this channel.
         for (int poll = 0; poll < 4; poll++) {
           if (_state != TrackerState.channelScanning || !isConnected) break;
           await Future.delayed(const Duration(milliseconds: 500));
 
-          final raw = await _gs.readRemoteRaw();
-          if (raw == null || raw == baseline) continue; // stale — skip
+          final result = await _gs.readRemote();
+          if (result == null) continue; // stale or timeout — skip
 
-          // Response changed — a fresh packet arrived on this channel
-          final result = _gs.parseRemote(raw);
           if (result is RemoteResponse) {
             _channelScanResults[result.remoteId] = ChannelScanHit(
               uid: result.remoteId,
@@ -627,31 +592,8 @@ class TrackerProvider extends ChangeNotifier {
     _transition(TrackerState.disconnected);
   }
 
-  void _startPolling({
-    required Duration interval,
-    required Future<void> Function() action,
-  }) {
-    _stopPolling();
-    _pollPhase = 0;
-    _pollTimer = Timer.periodic(interval, (_) async {
-      if (!isConnected) {
-        _stopPolling();
-        return;
-      }
-      await action();
-    });
-
-    // Refresh the UI every second so time-dependent values
-    // (e.g. "Last Packet Age", isRemoteOnline) stay current.
-    _uiRefreshTimer?.cancel();
-    _uiRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      notifyListeners();
-    });
-  }
-
   void _stopPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
+    _pollActive = false;
     _uiRefreshTimer?.cancel();
     _uiRefreshTimer = null;
   }
