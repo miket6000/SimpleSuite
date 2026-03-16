@@ -167,9 +167,7 @@ class GroundStationService {
     final response = await _sendCommand(cmd);
     if (response == null) return false;
     final result = _handler.parse(cmd, response);
-    final ok = result is CommandStatus && result.response == 'OK';
-    if (ok) _lastRawRemote = null; // baseline is stale after channel switch
-    return ok;
+    return result is CommandStatus && result.response == 'OK';
   }
 
   /// §2.5 — Send a raw LoRa transmission.

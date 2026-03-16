@@ -2,12 +2,16 @@ import '../models/tracker_data.dart';
 import 'gps_parser.dart';
 
 class SerialHandler {
+  static final _uidPattern = RegExp(r'^[0-9a-fA-F]{8}$');
+
+  /// Validate that a string is a valid 32-bit hex UID (8 hex chars).
+  static bool _isValidUid(String s) => _uidPattern.hasMatch(s);
+
   dynamic parse(String command, String response) {
     // --- UID command: returns 8-char hex UID ---
     if (command == 'UID') {
       final trimmed = response.trim();
-      if (trimmed.length == 8 &&
-          RegExp(r'^[0-9a-fA-F]{8}$').hasMatch(trimmed)) {
+      if (_isValidUid(trimmed)) {
         return UidResponse(uid: trimmed);
       }
       return UnknownResponse(raw: response);
@@ -49,7 +53,7 @@ class SerialHandler {
           if (pair.length == 2) {
             final uid = pair[0];
             final rssi = int.tryParse(pair[1]);
-            if (rssi != null) {
+            if (rssi != null && _isValidUid(uid)) {
               devices.add(ScanResult(uid: uid, rssi: rssi));
             }
           }
@@ -70,7 +74,7 @@ class SerialHandler {
       // Check for PAIR ACK: "<tracker_uid> &<gs_uid>TACK"
       if (trimmed.contains('TACK')) {
         final parts = trimmed.split(' ');
-        if (parts.isNotEmpty && parts[0].length == 8) {
+        if (parts.isNotEmpty && _isValidUid(parts[0])) {
           return PairAckResponse(remoteId: parts[0]);
         }
       }
@@ -88,7 +92,7 @@ class SerialHandler {
       // GPS tracking data: "<tracker_uid> <NMEA_sentence> <rssi>"
       // The UID is 8 hex chars, then a space, then NMEA starting with $, then RSSI at end
       final parts = trimmed.split(' ');
-      if (parts.length >= 3 && parts[0].length == 8) {
+      if (parts.length >= 3 && _isValidUid(parts[0])) {
         final id = parts[0];
         // RSSI is the last element
         final rssi = int.tryParse(parts.last);
@@ -106,7 +110,7 @@ class SerialHandler {
       }
 
       // Also handle 2-part responses: "<uid> <rssi>" (no NMEA)
-      if (parts.length == 2 && parts[0].length == 8) {
+      if (parts.length == 2 && _isValidUid(parts[0])) {
         final rssi = int.tryParse(parts[1]);
         if (rssi != null) {
           return RemoteUIDResponse(remoteId: parts[0], rssi: rssi);

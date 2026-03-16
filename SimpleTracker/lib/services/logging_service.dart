@@ -35,6 +35,9 @@ class LogEntry {
 class LoggingService {
   File? _logFile;
 
+  /// Serialises file writes so concurrent _append calls don't interleave.
+  Future<void> _writeChain = Future.value();
+
   /// Maximum number of entries kept in memory.
   static const int maxBufferSize = 2000;
 
@@ -117,22 +120,27 @@ class LoggingService {
     // Notify UI
     onNewEntry?.call();
 
-    // Write to file
-    try {
-      if (_logFile == null) {
-        await init();
+    // Serialise file writes through a future chain so concurrent calls
+    // cannot interleave their output on the same line.
+    _writeChain = _writeChain.then((_) async {
+      try {
+        if (_logFile == null) await init();
+        final sink = _logFile!.openWrite(mode: FileMode.append);
+        sink.writeln(entry.formatted);
+        await sink.flush();
+        await sink.close();
+      } catch (e) {
+        debugPrint('Logging error: $e');
       }
-      final sink = _logFile!.openWrite(mode: FileMode.append);
-      sink.writeln(entry.formatted);
-      await sink.flush();
-      await sink.close();
-    } catch (e) {
-      debugPrint('Logging error: $e');
-    }
+    });
+
+    return _writeChain;
   }
 
   Future<void> clearLog() async {
     _buffer.clear();
+    // Wait for any in-flight writes to finish before truncating
+    await _writeChain;
     if (_logFile != null && await _logFile!.exists()) {
       await _logFile!.writeAsString('');
     }
