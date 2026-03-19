@@ -273,7 +273,8 @@ class _DesktopSerialImpl implements _SerialServiceImpl {
         ..baudRate = baudRate
         ..bits = 8
         ..stopBits = 1
-        ..parity = SerialPortParity.none;
+        ..parity = SerialPortParity.none
+        ..setFlowControl(SerialPortFlowControl.none);
 
       if (!_port!.openReadWrite()) {
         _port = null;
