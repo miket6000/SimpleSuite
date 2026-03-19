@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 enum MapLayer {
   openStreetMap('OSM', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
   satellite('Satellite', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
-  dark('Dark', 'https://cartodb-basemaps-{s}.a.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'),
   terrain('Terrain', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');
 
   final String label;
@@ -69,69 +68,72 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.latitude == null || widget.longitude == null) {
+    final hasRemote = widget.latitude != null && widget.longitude != null;
+    final hasLocal = widget.localLatitude != null && widget.localLongitude != null;
+
+    if (!hasRemote && !hasLocal) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.grey[200],
           borderRadius: BorderRadius.circular(8),
         ),
         child: const Center(
-          child: Text('No tracker position available'),
+          child: Text('No position available'),
         ),
       );
     }
 
-    final remoteCenter = LatLng(widget.latitude!, widget.longitude!);
-    
-    // Determine map center: use local position if available, otherwise use remote position
+    // Determine map center: prefer local position, fall back to remote
     final LatLng mapCenter;
-    if (widget.localLatitude != null && widget.localLongitude != null) {
+    if (hasLocal) {
       mapCenter = LatLng(widget.localLatitude!, widget.localLongitude!);
     } else {
-      mapCenter = remoteCenter;
+      mapCenter = LatLng(widget.latitude!, widget.longitude!);
     }
 
     // Build list of markers
     final List<Marker> markers = [];
     
     // Remote tracker marker (red location pin)
-    markers.add(
-      Marker(
-        point: remoteCenter,
-        width: 120,
-        height: 80,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.location_on,
-              color: Colors.red,
-              size: 40,
-            ),
-            if (widget.trackerLabel != null && widget.trackerLabel!.isNotEmpty)
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Text(
-                    widget.trackerLabel!,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+    if (hasRemote) {
+      markers.add(
+        Marker(
+          point: LatLng(widget.latitude!, widget.longitude!),
+          width: 120,
+          height: 80,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.location_on,
+                color: Colors.red,
+                size: 40,
+              ),
+              if (widget.trackerLabel != null && widget.trackerLabel!.isNotEmpty)
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(3),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Text(
+                      widget.trackerLabel!,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
     
     // Local ground station marker (blue location pin)
     if (widget.localLatitude != null && widget.localLongitude != null) {
@@ -257,17 +259,19 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
                 ),
               ),
               // Center on tracker button (bottom-left)
-              Positioned(
-                bottom: 16,
-                left: 16,
-                child: FloatingActionButton.small(
-                  onPressed: () {
-                    _mapController.move(remoteCenter, _mapController.camera.zoom);
-                  },
-                  backgroundColor: Colors.red,
-                  child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+              if (hasRemote)
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  child: FloatingActionButton.small(
+                    onPressed: () {
+                      final remoteCenter = LatLng(widget.latitude!, widget.longitude!);
+                      _mapController.move(remoteCenter, _mapController.camera.zoom);
+                    },
+                    backgroundColor: Colors.red,
+                    child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+                  ),
                 ),
-              ),
               // Center on ground station button (bottom-center)
               if (widget.localLatitude != null && widget.localLongitude != null)
                 Positioned(
