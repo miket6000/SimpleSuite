@@ -29,13 +29,13 @@ class ScanResult {
 /// Discovery not started (D returns NONE)
 class DiscoveryNoneResponse {}
 
-/// Discovery in progress (D returns WAIT <count>)
+/// Discovery in progress (D returns WAIT [count])
 class DiscoveryWaitResponse {
   final int count;
   DiscoveryWaitResponse({required this.count});
 }
 
-/// Discovery complete (D returns <count> <uid1>,<rssi1> ...)
+/// Discovery complete (D returns [count] [uid1],[rssi1] ...)
 class DiscoveryCompleteResponse {
   final int count;
   final List<ScanResult> devices;

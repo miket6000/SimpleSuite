@@ -454,7 +454,7 @@ class TrackerProvider extends ChangeNotifier {
     _channelScanCurrent = 0;
     _transition(TrackerState.channelScanning);
 
-    await _log.info('Channel scan started (${_channelScanTotal} channels)');
+    await _log.info('Channel scan started ($_channelScanTotal channels)');
 
     while (_state == TrackerState.channelScanning && isConnected) {
       for (int i = 1; i < channelPresets.length; i++) {
