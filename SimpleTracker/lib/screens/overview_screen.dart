@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gps_tracker/logic/geo_tools.dart';
 import 'package:gps_tracker/models/gps_fix.dart';
 import '../widgets/datatile.dart';
-import '../widgets/status_bar.dart';
 import '../widgets/location_qr_widget.dart';
 import 'package:provider/provider.dart';
 import '../providers/tracker_provider.dart';
@@ -238,14 +237,6 @@ class OverviewScreenState extends State<OverviewScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: StatusBar(
-          isGpsFix: provider.remotePacketHasFix &&
-              provider.isConnected &&
-              provider.isRemoteOnline,
-          isTrackerOnline: provider.isRemoteOnline && provider.isConnected,
-          isLocalGPSFix: (provider.telemetry?.localFix?.hasFix ?? false) &&
-              provider.isConnected,
-          isConnected: provider.isConnected),
     );
   }
 }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/tracker_provider.dart';
 import '../services/settings_service.dart';
-import '../widgets/status_bar.dart';
 
 class ChannelScanScreen extends StatelessWidget {
   const ChannelScanScreen({super.key});
@@ -140,15 +139,6 @@ class ChannelScanScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: StatusBar(
-        isGpsFix: provider.remotePacketHasFix &&
-            provider.isConnected &&
-            provider.isRemoteOnline,
-        isTrackerOnline: provider.isRemoteOnline && provider.isConnected,
-        isLocalGPSFix: (provider.telemetry?.localFix?.hasFix ?? false) &&
-            provider.isConnected,
-        isConnected: provider.isConnected,
       ),
     );
   }

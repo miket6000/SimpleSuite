@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/tracker_provider.dart';
 import '../widgets/live_map_widget.dart';
-import '../widgets/status_bar.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -20,8 +19,9 @@ class MapScreenState extends State<MapScreen>
   Widget build(BuildContext context) {
     super.build(context); // required by AutomaticKeepAliveClientMixin
     final provider = Provider.of<TrackerProvider>(context);
-    final telemetry = provider.telemetry;
-    final remoteFix = telemetry?.remoteFix;
+  final telemetry = provider.telemetry;
+  final remoteFix = telemetry?.remoteFix;
+  final localFix = telemetry?.localFix;
 
     return Scaffold(
       body: SafeArea(
@@ -33,21 +33,19 @@ class MapScreenState extends State<MapScreen>
                 child: LiveMapWidget(
                   latitude: remoteFix?.latitude,
                   longitude: remoteFix?.longitude,
+                  trackerAltitude: remoteFix?.altitude,
                   trackerLabel: provider.selectedRemoteUID,
-                  localLatitude: telemetry?.localFix?.latitude,
-                  localLongitude: telemetry?.localFix?.longitude,
+                  localLatitude: localFix?.latitude,
+                  localLongitude: localFix?.longitude,
+                  localAltitude: localFix?.altitude,
                   localLabel: 'Ground Station',
+                  trackerRssi: telemetry?.rssi,
+                  trackerVerticalVelocity: telemetry?.verticalVelocity,
                 ),
               ),
             ],
           ),
         ),
-      ),
-      bottomNavigationBar: StatusBar(
-        isGpsFix: provider.remotePacketHasFix && provider.isConnected && provider.isRemoteOnline,
-        isTrackerOnline: provider.isRemoteOnline && provider.isConnected,
-        isLocalGPSFix: provider.telemetry?.localFix?.hasFix ?? false,
-        isConnected: provider.isConnected,
       ),
     );
   }

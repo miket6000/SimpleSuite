@@ -5,6 +5,7 @@ import 'screens/channel_scan_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/tracker_provider.dart';
 import 'screens/terminal_screen.dart';
+import 'widgets/status_bar.dart';
 
 void main() {
   runApp(
@@ -43,6 +44,7 @@ class MyHomePage extends StatefulWidget {
 class MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
+    final provider = Provider.of<TrackerProvider>(context);
     return Scaffold(
       appBar: AppBar(
         title: Text('SimpleTracker'),
@@ -64,6 +66,12 @@ class MyHomePageState extends State<MyHomePage> {
           TerminalScreen(),
           //SettingPage(),
         ],
+      ),
+      bottomNavigationBar: StatusBar(
+        isGpsFix: provider.remotePacketHasFix && provider.isConnected && provider.isRemoteOnline,
+        isTrackerOnline: provider.isRemoteOnline && provider.isConnected,
+        isLocalGPSFix: provider.telemetry?.localFix?.hasFix ?? false,
+        isConnected: provider.isConnected,
       ),
     );
   }

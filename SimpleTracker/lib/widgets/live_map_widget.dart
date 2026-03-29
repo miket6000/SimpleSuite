@@ -5,9 +5,15 @@ import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'map/bearing_overlay.dart';
+import 'map/map_center_buttons.dart';
+import 'map/map_layer_selector.dart';
+import 'map/map_marker.dart';
+import 'map/info_overlay.dart';
+
 enum MapLayer {
-  openStreetMap('OSM', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
   satellite('Satellite', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'),
+  openStreetMap('OSM', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
   terrain('Terrain', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}');
 
   final String label;
@@ -19,19 +25,27 @@ enum MapLayer {
 class LiveMapWidget extends StatefulWidget {
   final double? latitude;
   final double? longitude;
+  final double? trackerAltitude;
   final String? trackerLabel;
   final double? localLatitude;
   final double? localLongitude;
+  final double? localAltitude;
   final String? localLabel;
+  final int? trackerRssi;
+  final double? trackerVerticalVelocity;
 
   const LiveMapWidget({
     super.key,
     required this.latitude,
     required this.longitude,
+    this.trackerAltitude,
     this.trackerLabel,
     this.localLatitude,
     this.localLongitude,
+    this.localAltitude,
     this.localLabel,
+    this.trackerRssi,
+    this.trackerVerticalVelocity,
   });
 
   @override
@@ -69,7 +83,8 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
   @override
   Widget build(BuildContext context) {
     final hasRemote = widget.latitude != null && widget.longitude != null;
-    final hasLocal = widget.localLatitude != null && widget.localLongitude != null;
+    final hasLocal =
+        widget.localLatitude != null && widget.localLongitude != null;
 
     if (!hasRemote && !hasLocal) {
       return Container(
@@ -91,95 +106,44 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
       mapCenter = LatLng(widget.latitude!, widget.longitude!);
     }
 
-    // Build list of markers
-    final List<Marker> markers = [];
-    
-    // Remote tracker marker (red location pin)
-    if (hasRemote) {
-      markers.add(
-        Marker(
-          point: LatLng(widget.latitude!, widget.longitude!),
-          width: 120,
-          height: 80,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.location_on,
-                color: Colors.red,
-                size: 40,
-              ),
-              if (widget.trackerLabel != null && widget.trackerLabel!.isNotEmpty)
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Text(
-                      widget.trackerLabel!,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
-    
-    // Local ground station marker (blue location pin)
-    if (widget.localLatitude != null && widget.localLongitude != null) {
-      markers.add(
-        Marker(
+    // Build markers — ground station first (behind), remote tracker last (on top)
+    final List<Marker> markers = [
+      if (hasLocal)
+        MapMarker.build(
           point: LatLng(widget.localLatitude!, widget.localLongitude!),
-          width: 120,
-          height: 80,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.location_on,
-                color: Colors.blue,
-                size: 40,
-              ),
-              if (widget.localLabel != null && widget.localLabel!.isNotEmpty)
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Text(
-                      widget.localLabel!,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          color: Colors.blue,
+          label: widget.localLabel,
         ),
-      );
-    }
+      if (hasRemote)
+        MapMarker.build(
+          point: LatLng(widget.latitude!, widget.longitude!),
+          color: Colors.red,
+          label: widget.trackerLabel,
+        ),
+    ];
+
+    final LatLng? remotePosition =
+        hasRemote ? LatLng(widget.latitude!, widget.longitude!) : null;
+    final LatLng? localPosition =
+        hasLocal ? LatLng(widget.localLatitude!, widget.localLongitude!) : null;
 
     return FutureBuilder<CachedTileProvider>(
       future: _tileProviderFuture,
       builder: (context, snapshot) {
         final tileProvider = snapshot.data;
+
+        // Format vertical velocity
+        String vsValue;
+        if (widget.trackerVerticalVelocity != null) {
+          final v = widget.trackerVerticalVelocity!;
+          final sign = v > 0 ? '+' : (v < 0 ? '−' : '');
+          vsValue = '$sign${v.abs().toStringAsFixed(1)} m/s';
+        } else {
+          vsValue = '—';
+        }
+
+        // Format RSSI
+        String rssiValue = widget.trackerRssi != null ? '${widget.trackerRssi} dBm' : '—';
 
         return SizedBox.expand(
           child: Stack(
@@ -198,10 +162,11 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
                     minZoom: 1,
                     maxZoom: 19,
                     interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.all,
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                       enableMultiFingerGestureRace: false,
                     ),
-                    onPositionChanged: (MapPosition position, bool hasGesture) {},
+                    onPositionChanged:
+                        (MapPosition position, bool hasGesture) {},
                   ),
                   children: [
                     TileLayer(
@@ -211,79 +176,61 @@ class _LiveMapWidgetState extends State<LiveMapWidget> {
                       subdomains: const ['a', 'b', 'c'],
                       tileProvider: tileProvider ?? NetworkTileProvider(),
                     ),
-                    MarkerLayer(
-                      markers: markers,
-                    ),
+                    MarkerLayer(markers: markers),
                   ],
                 ),
               ),
-              // Layer selector button (top-right)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: PopupMenuButton<MapLayer>(
-                  initialValue: _selectedLayer,
-                  onSelected: (layer) {
-                    setState(() => _selectedLayer = layer);
-                  },
-                  itemBuilder: (context) => MapLayer.values
-                      .map((layer) => PopupMenuItem(
-                        value: layer,
-                        child: Text(layer.label),
-                      ))
-                      .toList(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.layers, size: 18),
-                        const SizedBox(width: 4),
-                        Text(
-                          _selectedLayer.label,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              MapLayerSelector(
+                selectedLayer: _selectedLayer,
+                onSelected: (layer) => setState(() => _selectedLayer = layer),
               ),
-              // Center on tracker button (bottom-left)
-              if (hasRemote)
+              MapCenterButtons(
+                remotePosition: remotePosition,
+                localPosition: localPosition,
+                mapController: _mapController,
+              ),
+              if (hasRemote && hasLocal)
                 Positioned(
-                  bottom: 16,
-                  left: 16,
-                  child: FloatingActionButton.small(
-                    onPressed: () {
-                      final remoteCenter = LatLng(widget.latitude!, widget.longitude!);
-                      _mapController.move(remoteCenter, _mapController.camera.zoom);
-                    },
-                    backgroundColor: Colors.red,
-                    child: const Icon(Icons.location_on, color: Colors.white, size: 20),
-                  ),
-                ),
-              // Center on ground station button (bottom-center)
-              if (widget.localLatitude != null && widget.localLongitude != null)
-                Positioned(
-                  bottom: 16,
-                  left: 80,
-                  child: FloatingActionButton.small(
-                    onPressed: () {
-                      final localCenter = LatLng(widget.localLatitude!, widget.localLongitude!);
-                      _mapController.move(localCenter, _mapController.camera.zoom);
-                    },
-                    backgroundColor: Colors.blue,
-                    child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+                  top: 8,
+                  left: 8,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      BearingOverlay(
+                        localLatitude: widget.localLatitude,
+                        localLongitude: widget.localLongitude,
+                        remoteLatitude: widget.latitude,
+                        remoteLongitude: widget.longitude,
+                        localAltitude: widget.localAltitude,
+                        remoteAltitude: widget.trackerAltitude,
+                      ),
+                      if (hasRemote) ...[
+                        const SizedBox(height: 8),
+                        InfoOverlay(
+                          label: 'V/S:',
+                          value: vsValue,
+                        ),
+                        const SizedBox(height: 8),
+                        InfoOverlay(
+                          label: 'RSSI:',
+                          value: rssiValue,
+                        ),
+                        const SizedBox(height: 8),
+                        // Altitude delta overlay
+                        InfoOverlay(
+                          label: 'Alt:',
+                          value: () {
+                            if (widget.trackerAltitude != null && widget.localAltitude != null) {
+                              final diff = widget.trackerAltitude! - widget.localAltitude!;
+                              final sign = diff > 0 ? '+' : (diff < 0 ? '−' : '');
+                              return '$sign${diff.abs().toStringAsFixed(1)} m';
+                            } else {
+                              return '—';
+                            }
+                          }(),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
             ],
